@@ -1,5 +1,5 @@
 #define G_DEBUG 1
-#define BAUD 115200
+#define BAUD 9600
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
