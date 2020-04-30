@@ -6,6 +6,10 @@
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
 
+int WATER_SENSOR_AN_PIN = A3;
+bool ROOM_FLOODED;
+int FLOOD_THRESHOLD;
+
 // Alarm Message
 String DEFAULT_MESSAGE = "Pomieszczenie%20zalane!!!";
 String DEFAULT_PHONE_NUMBER = "517174906";
@@ -108,6 +112,9 @@ void setup() {
 }
 
 void loop() {
+  time = millis();
+
+ 
   // Czytaj komende
   String IncomingString = "";
   boolean StringReady = false;
