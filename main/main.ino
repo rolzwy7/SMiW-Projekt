@@ -7,7 +7,11 @@
 #define BAUD 115200
 
 unsigned long timestamp_http = millis();
-int EEPROM_IT = 0;
+int EEPROM_IT = 9;
+
+bool is_connected = false;
+String connected_to = "<nie połączono>";
+bool added_ap = false;
 
 // Wifi Soft AP
 const char *g_SOFT_AP_SSID     = "SMIW_PROJ_AP_BN";
@@ -32,16 +36,47 @@ String remember_pwd2 = "";
 const char *g_WIFI_STATION_SSID     = "FunBox3-1482";
 const char *g_WIFI_STATION_PASSWORD = "T-y9*yS528";
 
+
 void wifDisconnect() { WiFi.disconnect(); }
-void wifiConnect() { WiFi.begin(g_WIFI_STATION_SSID, g_WIFI_STATION_PASSWORD); }
-void wifiBlockUntilConnected() {
+void wifiConnect(String ssid, String password) {
+  Serial.print("[Wifi Station] Trying to connect to: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+}
+bool wifiBlockUntilConnected() {
+  int count = 0;
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    delay(500);
+    delay(1000);
+    ++count;
+    if(count > 8) { return false; }
   }
    Serial.println("");
+   return true;
 }
 
+void connection_routine() {
+
+  for(int i=0;i<10;++i){
+    String ssid = SSIDs[i][0];
+    String passwd = SSIDs[i][1];
+    if(ssid == "") { continue; }
+    wifDisconnect();
+    Serial.println("[Wifi Station]");
+    wifiConnect(ssid, passwd);
+    if(wifiBlockUntilConnected()) {
+      Serial.println(" done");
+      Serial.print("IP address:\t");
+      Serial.println(WiFi.localIP());
+      connected_to = ssid;
+      is_connected = true;
+      break;
+    } else {
+      Serial.println("failed");
+    }
+  }
+
+}
 
 void setup() {
   // ===================== SETUP =====================
@@ -56,12 +91,11 @@ void setup() {
     delay(1000);
   }
   Serial.print("MAC: ");
-  Serial.println(WiFi.macAddress());
-  Serial.print("Test 147");
+  Serial.println(WiFi.macAddress());  
   // ===================== EEPROM =====================
   EEPROM.begin(512);
   byte eeprom_value;
-  for(int i=0;i<EEPROM.length();++i){
+  for(int i=9;i<EEPROM.length();++i){
     eeprom_value = EEPROM.read(i);
     if (eeprom_value == 0) {
       EEPROM_IT = i;
@@ -75,17 +109,11 @@ void setup() {
   WiFi.softAP(g_SOFT_AP_SSID, g_SOFT_AP_PASSWORD);
   Serial.print(", IP := ");
   Serial.println(WiFi.softAPIP());
+  delay(1500);
   // ===================== Make pass arr ===================== 
   ssid_make_table();
   // ===================== WiFi Station =====================
-  wifDisconnect();
-  Serial.print("[Wifi Station] Connecting to ");
-  Serial.print(g_WIFI_STATION_SSID);
-  wifiConnect();
-  wifiBlockUntilConnected();
-  Serial.println(" done");
-  Serial.print("IP address:\t");
-  Serial.println(WiFi.localIP());
+  connection_routine();
   // ===================== HTTP Server =====================
   Serial.print("Port:");
   Serial.println(HTTP_PORT);
@@ -131,13 +159,15 @@ void push_message(WiFiClient & client, String get_param, String alert_type, Stri
 }
 
 void messages(WiFiClient & client) {
+  if(added_ap) {
+    client.println("<div class='alert alert-danger'>Tablica punktów dostępowych została zmodyfikowana. Aby zmiany były uwzględniane należy <a href='/esp-restart'>zrestartować</a> urządzenie</div>");
+  }
   push_message(client, "pwds-too-short", "danger", "Hasło jest zbyt krótkie (<8 znaków)");
   push_message(client, "pwds-too-long", "danger", "Hasło jest zbyt długie (>63 znaki)");
   push_message(client, "pwds-bad-seq", "danger", "Żadna podana wartość nie może zawierać znaku '='");
   push_message(client, "pwds-not-same", "danger", "Podane hasła nie są takie same");
   push_message(client, "add-ap-missing-params", "danger", "Żadna podana wartość nie może zawierać znaku '='");
   push_message(client, "success-ap-added", "success", "Dodano punkt dostępowy pomyślnie");
-  //push_message(client, "mem-cls", "success", "EEPROM został wyczyszczony");
   push_message(client, "ssid-too-short", "danger", "SSID jest zbyt krótkie");
   push_message(client, "memory-exceeded", "danger", "Pamięć EEPROM została wyczerpana i nie może pomieścić tego punktu dostępowego");
 }
@@ -159,6 +189,8 @@ void extend_style(WiFiClient & client) {
   style += ".table th, .table td {padding: 0.75rem;vertical-align: top;border-top: 1px solid #dee2e6;}";
   style += ".table thead th {vertical-align: bottom;border-bottom: 2px solid #dee2e6;}";
   style += ".table-striped tbody tr:nth-of-type(odd) {background-color: rgba(0, 0, 0, 0.05);}";
+
+  style += "td {width:50%;}";
 
   style += "</style>";
   client.println(style);
@@ -219,31 +251,42 @@ void ssid_make_table() {
 }
 
 void config_view(WiFiClient & client) {
-  ssid_make_table();
-  String content = "<h2>Konfiguracja</h2>";
+  String content = "";
+  if(is_connected) {
+    content += "<h2>Status: połączono</h2>";
+  } else {
+    content += "<h2>Status: nie połączono</h2>";
+  }
+  content += "<h2>Konfiguracja</h2>";
   content += "<table class='table table-striped'><tbody>";
   content += "<tr><td>MAC Address</td><td>" + String(WiFi.macAddress()) + "</td></tr>";
   content += "<tr><td>Soft AP SSID</td><td>" + String(g_SOFT_AP_SSID) + " (" + WiFi.softAPIP().toString() + ")</td></tr>";
-  content += "<tr><td>Local IP</td><td>" + WiFi.localIP().toString() + "</td></tr>";
+  content += "<tr><td>Local IP</td><td>" + connected_to + " (" + WiFi.localIP().toString() + ")</td></tr>";
   content += "<tr><td>EEPROM</td><td>" + String(EEPROM_IT) + "/" + String(EEPROM.length()) + "</td></tr>";
   content += "</tbody></table>";
   content += "<hr>";
   content += "<h2>Punkty dostępowe</h2>";
+  content += "<form action='/add-ap' method='GET'>";
+  content += "<table>";
+  content += "<tr><td><b>SSID</b></td><td><input type='text' name='ssid' value='" + remember_ssid + "' required></td></tr>";
+  content += "<tr><td><b>Hasło</b></td><td><input type='password' name='pwd' value='" + remember_pwd + "' required></td></tr>";
+  content += "<tr><td><b>Powtórz hasło</b></td><td><input type='password' name='pwd2' value='" + remember_pwd2 + "' required></td></tr>";
+  content += "<tr><td></td><td><input type='submit' name='submit' value='Dodaj punkt dostępowy'></td></tr>";
+  content += "</table>";
+  content += "</form>";
   content += "<table class='table table-striped'><thead><tr><th>SSID</th><th>Hasło</th></tr></thead><tbody>";
   for(int i=0;i<10;++i){
     content += "<tr>";
-    content += "<td>" + SSIDs[i][0] + "</td>";
+    if(connected_to == SSIDs[i][0]) {
+      content += "<td>" + SSIDs[i][0] + " (connected)</td>";
+    } else {
+      content += "<td>" + SSIDs[i][0] + "</td>";
+    }
     content += "<td>" + SSIDs[i][1] + "</td>";
     content += "</tr>";
   }
   content += "</tbody></table>";
-  content += "<hr>";
-  content += "<form action='/add-ap' method='GET'>";
-  content += "<input type='text' name='ssid' value='" + remember_ssid + "' required><br>";
-  content += "<input type='password' name='pwd' value='" + remember_pwd + "' required><br>";
-  content += "<input type='password' name='pwd2' value='" + remember_pwd2 + "' required><br>";
-  content += "<input type='submit' name='submit' value='Dodaj punkt dostępowy'><br>";
-  content += "</form>";
+  
   extend_template(client, content);
 }
 
@@ -251,6 +294,7 @@ void homepage_view(WiFiClient & client) {
   String content = "<b>Homepage</b>";
   content += "<br><a href='/config'>Konfiguracja</a>";
   content += "<br><a href='/eeprom-show'>Pokaż EEPROM</a>";
+  content += "<hr>";
   content += "<br><a href='/wyczysc-pamiec'>Wyczyść EEPROM</a>";
   extend_template(client, content);
 }
@@ -316,6 +360,8 @@ void add_ap_view(WiFiClient & client) {
       remember_ssid = "";
       remember_pwd = "";
       remember_pwd2  = "";
+      added_ap = true;
+      ssid_make_table();
     } else {
       event="memory-exceeded";
      }
@@ -342,8 +388,6 @@ void pokaz_eeprom_view(WiFiClient & client) {
   extend_template(client, content);
 }
 
-
-
 void wyczysc_pamiec_view(WiFiClient & client) {
   for (int ad = 0; ad < EEPROM.length(); ad++) {
     EEPROM.write(ad, 0);
@@ -351,6 +395,14 @@ void wyczysc_pamiec_view(WiFiClient & client) {
   EEPROM.commit();
   EEPROM_IT = 0;
   extend_template(client, "Pamięć została wyczyszczona.");
+}
+
+void esp_restart_view(WiFiClient & client) {
+  String content = "";
+  content += "<p>Czujniki zalania jest w fazie restartu.</p><p>Przekierowanie na stronę główną nastąpi za <span id='msg'>20</span></p>";
+  content += "<script>var ttr = 20;setInterval(function() {ttr = ttr - 1;document.getElementById('msg').innerText = ttr;if(ttr == 0) {window.location = '/';}},1000);</script>";
+  extend_template(client, content);
+  ESP.restart();
 }
 
 void router(WiFiClient & client) {
@@ -363,7 +415,9 @@ void router(WiFiClient & client) {
   } else if (HTTP_HEADER.indexOf("GET /eeprom-show") >= 0) {
     pokaz_eeprom_view(client); 
   } else if (HTTP_HEADER.indexOf("GET /wyczysc-pamiec") >= 0) {
-    wyczysc_pamiec_view(client); 
+    wyczysc_pamiec_view(client);
+  } else if (HTTP_HEADER.indexOf("GET /esp-restart") >= 0) {
+    esp_restart_view(client);
   } else if (HTTP_HEADER.indexOf("GET /") >= 0) {
     homepage_view(client);
   } else {
@@ -373,6 +427,8 @@ void router(WiFiClient & client) {
 }
 
 void loop() {
+  is_connected = WiFi.status() == WL_CONNECTED;
+  
   WiFiClient client = server.available();
   if(client) {
     String line = "";
