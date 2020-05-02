@@ -1,16 +1,19 @@
+#include <EEPROM.h>
+
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
-#include <EEPROM.h>
 
 #define BAUD 115200
 
 unsigned long timestamp_http = millis();
-int EEPROM_MAX = 1024;
+int EEPROM_IT = 0;
 
 // Wifi Soft AP
 const char *g_SOFT_AP_SSID     = "SMIW_PROJ_AP_BN";
 const char *g_SOFT_AP_PASSWORD = "smiw_password";
+
+String SSIDs[][2] = {{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""}};
 
 // Alarm Message
 String DEFAULT_MESSAGE = "Pomieszczenie%20zalane!!!";
@@ -38,13 +41,7 @@ void wifiBlockUntilConnected() {
   }
    Serial.println("");
 }
-void eeprom_commit() {
-  if (EEPROM.commit()) {
-    Serial.println("EEPROM successfully committed");
-  } else {
-    Serial.println("ERROR! EEPROM commit failed");
-  }
-}
+
 
 void setup() {
   // ===================== SETUP =====================
@@ -60,21 +57,26 @@ void setup() {
   }
   Serial.print("MAC: ");
   Serial.println(WiFi.macAddress());
+  Serial.print("Test 147");
   // ===================== EEPROM =====================
   EEPROM.begin(512);
-  EEPROM.write(0, 110);
-  EEPROM.write(1, 111);
-  EEPROM.write(2, 119);
-  EEPROM.write(3, 97);
-  EEPROM.write(4, 107);
-  eeprom_commit();
+  byte eeprom_value;
+  for(int i=0;i<EEPROM.length();++i){
+    eeprom_value = EEPROM.read(i);
+    if (eeprom_value == 0) {
+      EEPROM_IT = i;
+      break;
+    }
+  }
   // ===================== Soft AP =====================
   Serial.print("[Wifi Soft AP] Starting, ");
   Serial.print(", SSID :=");
   Serial.print(g_SOFT_AP_SSID);
   WiFi.softAP(g_SOFT_AP_SSID, g_SOFT_AP_PASSWORD);
   Serial.print(", IP := ");
-  Serial.println(WiFi.softAPIP()); 
+  Serial.println(WiFi.softAPIP());
+  // ===================== Make pass arr ===================== 
+  ssid_make_table();
   // ===================== WiFi Station =====================
   wifDisconnect();
   Serial.print("[Wifi Station] Connecting to ");
@@ -135,7 +137,9 @@ void messages(WiFiClient & client) {
   push_message(client, "pwds-not-same", "danger", "Podane hasła nie są takie same");
   push_message(client, "add-ap-missing-params", "danger", "Żadna podana wartość nie może zawierać znaku '='");
   push_message(client, "success-ap-added", "success", "Dodano punkt dostępowy pomyślnie");
-  push_message(client, "eeprom-cleared", "success", "EEPROM został wyczyszczony");
+  //push_message(client, "mem-cls", "success", "EEPROM został wyczyszczony");
+  push_message(client, "ssid-too-short", "danger", "SSID jest zbyt krótkie");
+  push_message(client, "memory-exceeded", "danger", "Pamięć EEPROM została wyczerpana i nie może pomieścić tego punktu dostępowego");
 }
 
 void extend_style(WiFiClient & client) {
@@ -183,14 +187,57 @@ void extend_template(WiFiClient & client, String view) {
     client.println("</html>");
 }
 
+void ssid_make_table() {
+  String content="";
+  byte value;
+  for(int address=0;address<EEPROM.length();++address){
+    value = EEPROM.read(address);
+    if(value==0){break;}
+    content += char(value);
+  }
+
+  int arr_it = 0;
+  while(content.indexOf("==") > 0) {
+    int _from = content.indexOf("=") + 1;
+    int _to = content.indexOf("=", _from);
+    String ssid = content.substring(_from, _to);
+   
+    _from = content.indexOf("=", _to) + 1;
+    _to = content.indexOf("==", _from);
+    String passwd = content.substring(_from, _to);
+
+    content = content.substring(_to+2, content.length());
+
+    Serial.print(ssid);
+    Serial.print(" - ");
+    Serial.println(passwd);
+    SSIDs[arr_it][0] = ssid;
+    SSIDs[arr_it][1] = passwd;
+    arr_it++;
+
+  }
+}
+
 void config_view(WiFiClient & client) {
+  ssid_make_table();
   String content = "<h2>Konfiguracja</h2>";
   content += "<table class='table table-striped'><tbody>";
   content += "<tr><td>MAC Address</td><td>" + String(WiFi.macAddress()) + "</td></tr>";
-  content += "<tr><td>Soft AP SSID</td><td>" + String(g_SOFT_AP_SSID) + "</td></tr>";
+  content += "<tr><td>Soft AP SSID</td><td>" + String(g_SOFT_AP_SSID) + " (" + WiFi.softAPIP().toString() + ")</td></tr>";
   content += "<tr><td>Local IP</td><td>" + WiFi.localIP().toString() + "</td></tr>";
+  content += "<tr><td>EEPROM</td><td>" + String(EEPROM_IT) + "/" + String(EEPROM.length()) + "</td></tr>";
   content += "</tbody></table>";
-  content += "<br>";
+  content += "<hr>";
+  content += "<h2>Punkty dostępowe</h2>";
+  content += "<table class='table table-striped'><thead><tr><th>SSID</th><th>Hasło</th></tr></thead><tbody>";
+  for(int i=0;i<10;++i){
+    content += "<tr>";
+    content += "<td>" + SSIDs[i][0] + "</td>";
+    content += "<td>" + SSIDs[i][1] + "</td>";
+    content += "</tr>";
+  }
+  content += "</tbody></table>";
+  content += "<hr>";
   content += "<form action='/add-ap' method='GET'>";
   content += "<input type='text' name='ssid' value='" + remember_ssid + "' required><br>";
   content += "<input type='password' name='pwd' value='" + remember_pwd + "' required><br>";
@@ -204,7 +251,7 @@ void homepage_view(WiFiClient & client) {
   String content = "<b>Homepage</b>";
   content += "<br><a href='/config'>Konfiguracja</a>";
   content += "<br><a href='/eeprom-show'>Pokaż EEPROM</a>";
-  content += "<br><a href='/eeprom-clear'>Wyczyść EEPROM</a>";
+  content += "<br><a href='/wyczysc-pamiec'>Wyczyść EEPROM</a>";
   extend_template(client, content);
 }
 
@@ -240,48 +287,70 @@ void add_ap_view(WiFiClient & client) {
   Serial.println(var_pwd);
 
   if(var_pwd != var_pwd2){ event = "pwds-not-same"; }
+  
   if(var_pwd.indexOf("=") >= 0) { event = "pwds-bad-seq"; }
   if(var_pwd2.indexOf("=") >= 0) { event = "pwds-bad-seq"; }
   if(var_ssid.indexOf("=") >= 0) { event = "pwds-bad-seq"; }
+
+  if(var_ssid.length() <=0) { event = "ssid-too-short"; }
+  
   if(var_pwd.length() > 63) { { event = "pwds-too-long"; } }
   if(var_pwd.length() < 8) { { event = "pwds-too-short"; } }
 
-
   Serial.println(event);
   if(event == "success-ap-added") {
-    Serial.println("YEY");
-    remember_ssid = "";
-    remember_pwd = "";
-    remember_pwd2  = "";
+    String new_ap = "="+var_ssid+"="+var_pwd+"==";
+    bool memory_error = false;
+    int i;
+    int ch=0;
+    for(i=EEPROM_IT;i<EEPROM_IT+new_ap.length();++i) {
+      if(i >= EEPROM.length()) {
+        break;
+        memory_error=true;
+      }
+      EEPROM.write(i, new_ap.charAt(ch++));
+    }
+    EEPROM_IT=i;
+    if(!memory_error) {
+      EEPROM.commit();
+      remember_ssid = "";
+      remember_pwd = "";
+      remember_pwd2  = "";
+    } else {
+      event="memory-exceeded";
+     }
   } else {
     remember_ssid = var_ssid;
     remember_pwd = var_pwd;
     remember_pwd2  = var_pwd2;
   }
-
-  client.println("HTTP/1.1 301 Moved Permanently");
+ 
+  client.println("HTTP/1.1 307 Temporary Redirect");
   client.println("Location: /config?event=" + event);
   client.println();
 }
 
-void dump_eeprom(WiFiClient & client) {
+
+void pokaz_eeprom_view(WiFiClient & client) {
   String content = "";
   byte value;
-  for(int address=0;address<EEPROM_MAX;++address){
+  for(int address=0;address<EEPROM.length();++address){
     value = EEPROM.read(address);
     content += char(value);
   }
+  content = "<pre>" + content + "</pre>";
   extend_template(client, content);
 }
 
-void clear_eeprom(WiFiClient & client) {
-  for (int i = 0; i < EEPROM_MAX; i++) {
-    EEPROM.write(i, 0);
+
+
+void wyczysc_pamiec_view(WiFiClient & client) {
+  for (int ad = 0; ad < EEPROM.length(); ad++) {
+    EEPROM.write(ad, 0);
   }
-  eeprom_commit();
-  client.println("HTTP/1.1 301 Moved Permanently");
-  client.println("Location: /?event=eeprom-cleared");
-  client.println();
+  EEPROM.commit();
+  EEPROM_IT = 0;
+  extend_template(client, "Pamięć została wyczyszczona.");
 }
 
 void router(WiFiClient & client) {
@@ -292,14 +361,15 @@ void router(WiFiClient & client) {
   } else if (HTTP_HEADER.indexOf("GET /add-ap") >= 0) {
     add_ap_view(client); 
   } else if (HTTP_HEADER.indexOf("GET /eeprom-show") >= 0) {
-    dump_eeprom(client); 
-  } else if (HTTP_HEADER.indexOf("GET /eeprom-clear") >= 0) {
-    clear_eeprom(client); 
+    pokaz_eeprom_view(client); 
+  } else if (HTTP_HEADER.indexOf("GET /wyczysc-pamiec") >= 0) {
+    wyczysc_pamiec_view(client); 
   } else if (HTTP_HEADER.indexOf("GET /") >= 0) {
     homepage_view(client);
   } else {
     extend_template(client, "Unknown route");
   }
+
 }
 
 void loop() {
