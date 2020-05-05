@@ -4,7 +4,18 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 
+int WATER_SENSOR_AN_PIN = A0;
+unsigned long ROOM_FLOODED_TIME;
+bool ROOM_FLOODED;
+int GT_FLOOD;
+unsigned long flood_time;
+int flood_val_print = 70000;
+int water_sensor_val;
+
+
 #define BAUD 115200
+
+HTTPClient http;
 
 unsigned long timestamp_http = millis();
 int EEPROM_IT = 9;
@@ -21,7 +32,9 @@ String SSIDs[][2] = {{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", 
 
 // Alarm Message
 String DEFAULT_MESSAGE = "Pomieszczenie%20zalane!!!";
-String DEFAULT_PHONE_NUMBER = "517174906";
+String PHONE_NUMBER = "";
+
+
 
 // HTTP server
 const int HTTP_PORT = 80;
@@ -33,9 +46,34 @@ String remember_pwd = "";
 String remember_pwd2 = "";
 
 // Wifi Station
-const char *g_WIFI_STATION_SSID     = "FunBox3-1482";
-const char *g_WIFI_STATION_PASSWORD = "T-y9*yS528";
+//const char *g_WIFI_STATION_SSID     = "FunBox3-1482";
+//const char *g_WIFI_STATION_PASSWORD = "T-y9*yS528";
 
+String IFTTT_URL = "https://maker.ifttt.com/trigger/sms_notify_574235896/with/key/qqGPpslrMv-cNGVOFdXJa";
+String IFTTT_FINGERPRINT = "aa 75 cb 41 2e d5 f9 97 ff 5d a0 8b 7d ac 12 21 08 4b 00 8c";
+
+String getAlarmLink(String phone_number, String alarm_message) {
+  return IFTTT_URL + "?value1=" + phone_number + "&value2=" + alarm_message;
+}
+
+void sendAlarmSMS(String phone_number, String alarm_message) {
+  if(wifiBlockUntilConnected()) {
+    String ifttt_url_local = getAlarmLink(phone_number, alarm_message);
+    Serial.println("Sending to : " + ifttt_url_local);
+    http.begin(ifttt_url_local, IFTTT_FINGERPRINT);
+    int httpCode = http.GET();
+    Serial.println(httpCode);
+    //Send the request
+    if (httpCode > 0)
+    {
+      String payload = http.getString();
+      Serial.println(payload);
+    }
+    http.end();
+  } else {
+    Serial.println("Coludn't send SMS");
+  }
+}
 
 void wifDisconnect() { WiFi.disconnect(); }
 void wifiConnect(String ssid, String password) {
@@ -51,7 +89,6 @@ bool wifiBlockUntilConnected() {
     ++count;
     if(count > 8) { return false; }
   }
-   Serial.println("");
    return true;
 }
 
@@ -79,6 +116,9 @@ void connection_routine() {
 }
 
 void setup() {
+  water_sensor_val = 0;
+  ROOM_FLOODED = false;
+  GT_FLOOD = 370;
   // ===================== SETUP =====================
   Serial.begin(BAUD);
   while (!Serial) { continue; }
@@ -93,6 +133,7 @@ void setup() {
   Serial.print("MAC: ");
   Serial.println(WiFi.macAddress());  
   // ===================== EEPROM =====================
+  // get eeprom index
   EEPROM.begin(512);
   byte eeprom_value;
   for(int i=9;i<EEPROM.length();++i){
@@ -101,6 +142,11 @@ void setup() {
       EEPROM_IT = i;
       break;
     }
+  }
+  // get phone number
+  for(int i=0;i<9;++i){
+    eeprom_value = EEPROM.read(i);
+    PHONE_NUMBER += char(eeprom_value);
   }
   // ===================== Soft AP =====================
   Serial.print("[Wifi Soft AP] Starting, ");
@@ -115,7 +161,7 @@ void setup() {
   // ===================== WiFi Station =====================
   connection_routine();
   // ===================== HTTP Server =====================
-  Serial.print("Port:");
+  Serial.print("Web Server Port : ");
   Serial.println(HTTP_PORT);
   server.begin();
 }
@@ -170,6 +216,12 @@ void messages(WiFiClient & client) {
   push_message(client, "success-ap-added", "success", "Dodano punkt dostępowy pomyślnie");
   push_message(client, "ssid-too-short", "danger", "SSID jest zbyt krótkie");
   push_message(client, "memory-exceeded", "danger", "Pamięć EEPROM została wyczerpana i nie może pomieścić tego punktu dostępowego");
+
+  push_message(client, "success-phone-changed", "success", "Zmieniono numer telefonu pomyślnie");
+  push_message(client, "phone-length-error", "danger", "Numer telefonu powinien składać się z 9 cyfr");
+  push_message(client, "phone-format-error", "danger", "Numer telefonu powinien składać się z 9 cyfr");
+
+  push_message(client, "sms-send-test", "success", "Testowy SMS został wysłany");
 }
 
 void extend_style(WiFiClient & client) {
@@ -190,7 +242,7 @@ void extend_style(WiFiClient & client) {
   style += ".table thead th {vertical-align: bottom;border-bottom: 2px solid #dee2e6;}";
   style += ".table-striped tbody tr:nth-of-type(odd) {background-color: rgba(0, 0, 0, 0.05);}";
 
-  style += "td {width:50%;}";
+  style += ".half td {width:50%;}";
 
   style += "</style>";
   client.println(style);
@@ -210,7 +262,8 @@ void extend_template(WiFiClient & client, String view) {
     client.println("<title>Czujnik zalania pomieszczenia - Projekt SMIW</title>");
     client.println("</head>");
     client.println("<body>");
-    client.println("<nav class='navbar'>");
+    client.println("<nav>");
+    client.println("<a href='./'>Odśwież</a>");
     client.println("<a href='/'>Strona główna</a>");
     client.println("</nav>");
     messages(client);
@@ -222,7 +275,7 @@ void extend_template(WiFiClient & client, String view) {
 void ssid_make_table() {
   String content="";
   byte value;
-  for(int address=0;address<EEPROM.length();++address){
+  for(int address=9;address<EEPROM.length();++address){
     value = EEPROM.read(address);
     if(value==0){break;}
     content += char(value);
@@ -258,14 +311,30 @@ void config_view(WiFiClient & client) {
     content += "<h2>Status: nie połączono</h2>";
   }
   content += "<h2>Konfiguracja</h2>";
-  content += "<table class='table table-striped'><tbody>";
+  content += "<table class='table table-striped half'><tbody>";
   content += "<tr><td>MAC Address</td><td>" + String(WiFi.macAddress()) + "</td></tr>";
   content += "<tr><td>Soft AP SSID</td><td>" + String(g_SOFT_AP_SSID) + " (" + WiFi.softAPIP().toString() + ")</td></tr>";
   content += "<tr><td>Local IP</td><td>" + connected_to + " (" + WiFi.localIP().toString() + ")</td></tr>";
-  content += "<tr><td>EEPROM</td><td>" + String(EEPROM_IT) + "/" + String(EEPROM.length()) + "</td></tr>";
+  content += "<tr><td>EEPROM&nbsp;<a href='/wyczysc-pamiec'>show</a></td><td>" + String(EEPROM_IT) + "/" + String(EEPROM.length()) + "</td></tr>";
+  if(ROOM_FLOODED) {
+    content += "<tr><td>Water level</td><td>" + String(water_sensor_val) + " (pomieszczenie zalane)</td></tr>";
+  }else{
+    content += "<tr><td>Water level</td><td>" + String(water_sensor_val) + "</td></tr>";
+  }
   content += "</tbody></table>";
   content += "<hr>";
+  content += "<h2>Numer telefonu</h2>";
+  content += "<p>Numer telefonu na który zostanie wysłany SMS</p>";
+  content += "<form action='/change-phone' method='GET'>";
+  content += "<table>";
+  content += "<tr> <td>Numer telefonu</td> <td><input type='text' name='phone_number' value='" + PHONE_NUMBER + "' required></td> <td><a href='/test-sms'>&nbsp;Test</a></td> </tr>";
+  content += "<tr> <td></td> <td><input type='submit' name='submit' value='Zmień numer telefonu'></td> <td></td></tr>";  
+  content += "</table>";
+  content += "<input type='hidden' name='stop' value=''>";
+  content += "</form>";
+  content += "<hr>";
   content += "<h2>Punkty dostępowe</h2>";
+  content += "<p><a href='/wyczysc-pamiec'>Wyczyść tablicę punktów dostępowych</a></p>";
   content += "<form action='/add-ap' method='GET'>";
   content += "<table>";
   content += "<tr><td><b>SSID</b></td><td><input type='text' name='ssid' value='" + remember_ssid + "' required></td></tr>";
@@ -297,6 +366,49 @@ void homepage_view(WiFiClient & client) {
   content += "<hr>";
   content += "<br><a href='/wyczysc-pamiec'>Wyczyść EEPROM</a>";
   extend_template(client, content);
+}
+
+void change_phone_number_view(WiFiClient & client) {
+  Serial.println("[ ADD PHONE NUMBER VIEW ]");
+  String phone_number = "";
+  String event = "success-phone-changed";
+  if(HTTP_HEADER.indexOf("phone_number=") >= 0) {
+    int _from = HTTP_HEADER.indexOf("phone_number=") + 13;
+    int _to = HTTP_HEADER.indexOf("&", _from);
+    phone_number = HTTP_HEADER.substring(_from, _to);
+  }
+
+  if(phone_number.length() != 9) {
+    event = "phone-length-error"; 
+  } else {
+
+    char numbers[10] = {'0', '1', '2', '3', '4' ,'5' ,'6' ,'7' ,'8', '9'};
+    bool was_digit;
+    for(int j=0;j<9;++j) {
+      was_digit = false;
+      for(int i=0;i<10;++i) {
+        if(numbers[i] == phone_number[j]){was_digit=true;}
+      }
+      if(was_digit == false) {
+        event = "phone-format-error";
+        break;
+      }
+    }
+  
+  }
+
+  if(event == "success-phone-changed") {
+    PHONE_NUMBER = phone_number;
+    for(int i=0;i<9;++i){
+      EEPROM.write(i, PHONE_NUMBER.charAt(i));
+    }
+    EEPROM.commit();
+  }
+
+  client.println("HTTP/1.1 307 Temporary Redirect");
+  client.println("Location: /config?event=" + event);
+  client.println();
+ 
 }
 
 void add_ap_view(WiFiClient & client) {
@@ -376,6 +488,12 @@ void add_ap_view(WiFiClient & client) {
   client.println();
 }
 
+void test_send_sms_view(WiFiClient & client) {
+  sendAlarmSMS(PHONE_NUMBER, "TEST_SMS");
+  client.println("HTTP/1.1 307 Temporary Redirect");
+  client.println("Location: /config?event=sms-send-test");
+  client.println();
+}
 
 void pokaz_eeprom_view(WiFiClient & client) {
   String content = "";
@@ -389,11 +507,11 @@ void pokaz_eeprom_view(WiFiClient & client) {
 }
 
 void wyczysc_pamiec_view(WiFiClient & client) {
-  for (int ad = 0; ad < EEPROM.length(); ad++) {
+  for (int ad = 9; ad < EEPROM.length(); ad++) {
     EEPROM.write(ad, 0);
   }
   EEPROM.commit();
-  EEPROM_IT = 0;
+  EEPROM_IT = 9;
   extend_template(client, "Pamięć została wyczyszczona.");
 }
 
@@ -402,6 +520,7 @@ void esp_restart_view(WiFiClient & client) {
   content += "<p>Czujniki zalania jest w fazie restartu.</p><p>Przekierowanie na stronę główną nastąpi za <span id='msg'>20</span></p>";
   content += "<script>var ttr = 20;setInterval(function() {ttr = ttr - 1;document.getElementById('msg').innerText = ttr;if(ttr == 0) {window.location = '/';}},1000);</script>";
   extend_template(client, content);
+  delay(1000);
   ESP.restart();
 }
 
@@ -411,7 +530,11 @@ void router(WiFiClient & client) {
     config_view(client);
   // Homepage View
   } else if (HTTP_HEADER.indexOf("GET /add-ap") >= 0) {
-    add_ap_view(client); 
+    add_ap_view(client);
+  } else if (HTTP_HEADER.indexOf("GET /change-phone") >= 0) {
+    change_phone_number_view(client);
+  } else if (HTTP_HEADER.indexOf("GET /test-sms") >= 0) {
+    test_send_sms_view(client); 
   } else if (HTTP_HEADER.indexOf("GET /eeprom-show") >= 0) {
     pokaz_eeprom_view(client); 
   } else if (HTTP_HEADER.indexOf("GET /wyczysc-pamiec") >= 0) {
@@ -419,7 +542,8 @@ void router(WiFiClient & client) {
   } else if (HTTP_HEADER.indexOf("GET /esp-restart") >= 0) {
     esp_restart_view(client);
   } else if (HTTP_HEADER.indexOf("GET /") >= 0) {
-    homepage_view(client);
+    config_view(client);
+    //homepage_view(client);
   } else {
     extend_template(client, "Unknown route");
   }
@@ -461,4 +585,46 @@ void loop() {
     Serial.println("New Client.");
     Serial.println("Client disconnected.");
   }
+
+  // SEND SMS
+  flood_time = millis();
+
+  if(is_connected) {
+    --flood_val_print;
+    if(flood_val_print < 0) {
+      water_sensor_val = analogRead(WATER_SENSOR_AN_PIN);
+      flood_val_print  = 70000;
+      Serial.print(water_sensor_val);
+      Serial.println( (ROOM_FLOODED) ? " flooded": " not flooded" );
+     
+ 
+    // Detect flood
+    if(!ROOM_FLOODED && water_sensor_val > GT_FLOOD) {
+      ROOM_FLOODED = true;
+      ROOM_FLOODED_TIME = millis();
+      //digitalWrite(7, HIGH);
+      Serial.println("Flood -> sendin sms");
+      sendAlarmSMS(PHONE_NUMBER, DEFAULT_MESSAGE);
+    } else {
+      //
+      if(ROOM_FLOODED) {
+        Serial.print("Flood timeout : ");
+        Serial.print(String(flood_time - ROOM_FLOODED_TIME));
+        Serial.println(" / 120000");
+      }
+      if(flood_time - ROOM_FLOODED_TIME > 120000) {
+
+
+        
+        ROOM_FLOODED = false;
+        //digitalWrite(7, LOW);
+      }
+      //
+    }
+
+  }
+  } else {
+  
+  }
+
 }
