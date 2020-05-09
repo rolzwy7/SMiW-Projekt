@@ -34,8 +34,6 @@ String SSIDs[][2] = {{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", ""},{"", 
 String DEFAULT_MESSAGE = "Pomieszczenie%20zalane!!!";
 String PHONE_NUMBER = "";
 
-
-
 // HTTP server
 const int HTTP_PORT = 80;
 WiFiServer server(HTTP_PORT);
@@ -315,7 +313,7 @@ void config_view(WiFiClient & client) {
   content += "<tr><td>MAC Address</td><td>" + String(WiFi.macAddress()) + "</td></tr>";
   content += "<tr><td>Soft AP SSID</td><td>" + String(g_SOFT_AP_SSID) + " (" + WiFi.softAPIP().toString() + ")</td></tr>";
   content += "<tr><td>Local IP</td><td>" + connected_to + " (" + WiFi.localIP().toString() + ")</td></tr>";
-  content += "<tr><td>EEPROM&nbsp;<a href='/wyczysc-pamiec'>show</a></td><td>" + String(EEPROM_IT) + "/" + String(EEPROM.length()) + "</td></tr>";
+  content += "<tr><td>EEPROM&nbsp;<a href='/eeprom-show'>show</a></td><td>" + String(EEPROM_IT) + "/" + String(EEPROM.length()) + "</td></tr>";
   if(ROOM_FLOODED) {
     content += "<tr><td>Water level</td><td>" + String(water_sensor_val) + " (pomieszczenie zalane)</td></tr>";
   }else{
