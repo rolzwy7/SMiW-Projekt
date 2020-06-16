@@ -549,10 +549,11 @@ void router(WiFiClient & client) {
 }
 
 void loop() {
-  is_connected = WiFi.status() == WL_CONNECTED;
+  //is_connected = WiFi.status() == WL_CONNECTED;
   
   WiFiClient client = server.available();
   if(client) {
+    Serial.println("New Client.");
     String line = "";
   
     timestamp_http = millis();
@@ -580,18 +581,18 @@ void loop() {
  
     HTTP_HEADER = "";
     client.stop();
-    Serial.println("New Client.");
     Serial.println("Client disconnected.");
   }
 
   // SEND SMS
+  /*
   flood_time = millis();
 
   if(is_connected) {
     --flood_val_print;
     if(flood_val_print < 0) {
       water_sensor_val = analogRead(WATER_SENSOR_AN_PIN);
-      flood_val_print  = 70000;
+      flood_val_print  = 700000;
       Serial.print(water_sensor_val);
       Serial.println( (ROOM_FLOODED) ? " flooded": " not flooded" );
      
@@ -623,6 +624,6 @@ void loop() {
   }
   } else {
   
-  }
+  }*/
 
 }
