@@ -1,3 +1,19 @@
+/*
+
+void setup() {
+  pinMode(D3, OUTPUT);
+};
+
+void loop() {
+  digitalWrite(D3, HIGH);
+  delay(750);
+  digitalWrite(D3, LOW);
+  delay(750);
+};
+
+*/
+
+
 #include <EEPROM.h>
 
 #include <ESP8266WiFi.h>
