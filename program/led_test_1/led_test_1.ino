@@ -1,26 +1,31 @@
-/*
- void setup() {
-  pinMode(D3, OUTPUT);
-};
-
-void loop() {
-  digitalWrite(D3, HIGH);
-  delay(750);
-  digitalWrite(D3, LOW);
-  delay(750);
-};
-
-*/
 int val;
 
-void setup() { // D6 -> D7
-  pinMode(D6, OUTPUT);
-  pinMode(D7, INPUT);
+unsigned long _start;
+bool toggle;
+
+void setup() {
   Serial.begin(115200);
-  digitalWrite(D6, HIGH);
+
+  pinMode(D2, INPUT);
+
+  pinMode(D1, OUTPUT);  
+  _start = millis();
+  toggle = true;
 };
 
 void loop() {
-  val = digitalRead(D7);
+  val = digitalRead(D2);
   Serial.println(val);
+
+  if( millis() - _start > 1000) {
+    _start = millis();
+    if(toggle) {
+      toggle = false;
+      digitalWrite(D1, HIGH);
+    } else {
+      toggle = true;
+      digitalWrite(D1, LOW);
+    }
+  }
+ 
 };
