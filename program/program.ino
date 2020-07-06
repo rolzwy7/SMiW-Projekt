@@ -55,6 +55,18 @@ String getAlarmLink(String phone_number, String alarm_message) {
   return IFTTT_URL + "?value1=" + phone_number + "&value2=" + alarm_message;
 }
 
+void led_blink() {
+  digitalWrite(D1, HIGH);
+  delay(333);
+  digitalWrite(D1, LOW);
+  delay(333);
+  digitalWrite(D1, HIGH);
+  delay(333);
+  digitalWrite(D1, LOW);
+  delay(333);
+  digitalWrite(D1, HIGH);
+}
+
 void sendAlarmSMS(String phone_number, String alarm_message) {
   if(wifiBlockUntilConnected()) {
     String ifttt_url_local = getAlarmLink(phone_number, alarm_message);
@@ -168,6 +180,7 @@ void setup() {
   connection_routine();
   // ===================== Soft AP =====================
   if(is_connected == true) {
+    led_blink();
     digitalWrite(D1, LOW);
     Serial.println("[*] Connected to AP -> skipping Soft AP");
     Serial.println(WiFi.softAPdisconnect(true) ? "OK":"Err");
@@ -564,18 +577,6 @@ void router(WiFiClient & client) {
     extend_template(client, "Unknown route");
   }
 
-}
-
-void led_blink() {
-  digitalWrite(D1, HIGH);
-  delay(333);
-  digitalWrite(D1, LOW);
-  delay(333);
-  digitalWrite(D1, HIGH);
-  delay(333);
-  digitalWrite(D1, LOW);
-  delay(333);
-  digitalWrite(D1, HIGH);
 }
 
 void softAPRollback() {
