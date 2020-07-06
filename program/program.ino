@@ -1,19 +1,3 @@
-/*
-
-void setup() {
-  pinMode(D3, OUTPUT);
-};
-
-void loop() {
-  digitalWrite(D3, HIGH);
-  delay(750);
-  digitalWrite(D3, LOW);
-  delay(750);
-};
-
-*/
-
-
 #include <EEPROM.h>
 
 #include <ESP8266WiFi.h>
@@ -27,12 +11,13 @@ int GT_FLOOD;
 unsigned long flood_time;
 int flood_val_print = 70000;
 int water_sensor_val;
-
+int button_state;
 
 #define BAUD 115200
 
 HTTPClient http;
 
+unsigned long _start = millis();
 unsigned long timestamp_http = millis();
 int EEPROM_IT = 9;
 
@@ -89,7 +74,10 @@ void sendAlarmSMS(String phone_number, String alarm_message) {
   }
 }
 
-void wifDisconnect() { WiFi.disconnect(); }
+void wifDisconnect() {
+  Serial.println("[*] Disconnecting AP");
+  WiFi.disconnect();
+ }
 void wifiConnect(String ssid, String password) {
   Serial.print("[Wifi Station] Trying to connect to: ");
   Serial.println(ssid);
@@ -129,10 +117,22 @@ void connection_routine() {
 
 }
 
+void connectSoftAP() {
+    Serial.print("[Wifi Soft AP] Starting, ");
+    Serial.print(", SSID :=");
+    Serial.print(g_SOFT_AP_SSID);
+    WiFi.softAP(g_SOFT_AP_SSID, g_SOFT_AP_PASSWORD);
+    Serial.print(", IP := ");
+    Serial.println(WiFi.softAPIP());
+}
+
 void setup() {
   water_sensor_val = 0;
   ROOM_FLOODED = false;
   GT_FLOOD = 370;
+  // ===================== SET PINS =====================
+  pinMode(D2, INPUT); // button
+  pinMode(D1, OUTPUT); // led
   // ===================== SETUP =====================
   Serial.begin(BAUD);
   while (!Serial) { continue; }
@@ -162,18 +162,20 @@ void setup() {
     eeprom_value = EEPROM.read(i);
     PHONE_NUMBER += char(eeprom_value);
   }
-  // ===================== Soft AP =====================
-  Serial.print("[Wifi Soft AP] Starting, ");
-  Serial.print(", SSID :=");
-  Serial.print(g_SOFT_AP_SSID);
-  WiFi.softAP(g_SOFT_AP_SSID, g_SOFT_AP_PASSWORD);
-  Serial.print(", IP := ");
-  Serial.println(WiFi.softAPIP());
-  delay(1500);
   // ===================== Make pass arr ===================== 
   ssid_make_table();
   // ===================== WiFi Station =====================
   connection_routine();
+  // ===================== Soft AP =====================
+  if(is_connected == true) {
+    digitalWrite(D1, LOW);
+    Serial.println("[*] Connected to AP -> skipping Soft AP");
+    Serial.println(WiFi.softAPdisconnect(true) ? "OK":"Err");
+  } else {
+    digitalWrite(D1, HIGH);
+    connectSoftAP();
+    delay(1500);
+  }
   // ===================== HTTP Server =====================
   Serial.print("Web Server Port : ");
   Serial.println(HTTP_PORT);
@@ -564,8 +566,38 @@ void router(WiFiClient & client) {
 
 }
 
+void led_blink() {
+  digitalWrite(D1, HIGH);
+  delay(333);
+  digitalWrite(D1, LOW);
+  delay(333);
+  digitalWrite(D1, HIGH);
+  delay(333);
+  digitalWrite(D1, LOW);
+  delay(333);
+  digitalWrite(D1, HIGH);
+}
+
+void softAPRollback() {
+  wifDisconnect();
+  led_blink();
+  connectSoftAP();
+  delay(1000);
+}
+
 void loop() {
   //is_connected = WiFi.status() == WL_CONNECTED;
+
+  if( millis() - _start > 1500) {
+    _start = millis();
+    button_state = digitalRead(D2);
+    if(button_state) {
+      Serial.println("[Action] Rollback to SoftAP");
+      softAPRollback();
+    }
+  }
+  
+  
   
   WiFiClient client = server.available();
   if(client) {
@@ -601,7 +633,7 @@ void loop() {
   }
 
   // SEND SMS
-  /*
+  
   flood_time = millis();
 
   if(is_connected) {
@@ -638,8 +670,6 @@ void loop() {
     }
 
   }
-  } else {
-  
-  }*/
+  }
 
 }
