@@ -48,11 +48,12 @@ String remember_pwd2 = "";
 //const char *g_WIFI_STATION_SSID     = "FunBox3-1482";
 //const char *g_WIFI_STATION_PASSWORD = "T-y9*yS528";
 
-String IFTTT_URL = "https://maker.ifttt.com/trigger/sms_notify_574235896/with/key/qqGPpslrMv-cNGVOFdXJa";
-String IFTTT_FINGERPRINT = "aa 75 cb 41 2e d5 f9 97 ff 5d a0 8b 7d ac 12 21 08 4b 00 8c";
+//String IFTTT_URL = "http://sms.rolzwy7.usermd.net/sms-gate/send/517174906/zalane/";
+String IFTTT_FINGERPRINT = "40 cf ed 2a 97 a5 86 71 3c f7 10 d3 20 7a d5 d1 7f a8 c4 fd";
 
 String getAlarmLink(String phone_number, String alarm_message) {
-  return IFTTT_URL + "?value1=" + phone_number + "&value2=" + alarm_message;
+  return "http://sms.rolzwy7.usermd.net/sms-gate/send/" + phone_number + "/zalane/";
+  //return IFTTT_URL + "?value1=" + phone_number + "&value2=" + alarm_message;
 }
 
 void led_blink() {
@@ -71,7 +72,8 @@ void sendAlarmSMS(String phone_number, String alarm_message) {
   if(wifiBlockUntilConnected()) {
     String ifttt_url_local = getAlarmLink(phone_number, alarm_message);
     Serial.println("Sending to : " + ifttt_url_local);
-    http.begin(ifttt_url_local, IFTTT_FINGERPRINT);
+    //http.begin(ifttt_url_local, IFTTT_FINGERPRINT);
+    http.begin(ifttt_url_local);
     int httpCode = http.GET();
     Serial.println(httpCode);
     //Send the request
@@ -141,10 +143,11 @@ void connectSoftAP() {
 void setup() {
   water_sensor_val = 0;
   ROOM_FLOODED = false;
-  GT_FLOOD = 370;
+  GT_FLOOD = 400;
   // ===================== SET PINS =====================
   pinMode(D2, INPUT); // button
   pinMode(D1, OUTPUT); // led
+  digitalWrite(D1, LOW);
   // ===================== SETUP =====================
   Serial.begin(BAUD);
   while (!Serial) { continue; }
@@ -186,6 +189,7 @@ void setup() {
     Serial.println(WiFi.softAPdisconnect(true) ? "OK":"Err");
   } else {
     digitalWrite(D1, HIGH);
+    wifDisconnect();
     connectSoftAP();
     delay(1500);
   }
@@ -541,6 +545,7 @@ void wyczysc_pamiec_view(WiFiClient & client) {
   }
   EEPROM.commit();
   EEPROM_IT = 9;
+  added_ap = true;
   extend_template(client, "Pamięć została wyczyszczona.");
 }
 
@@ -641,7 +646,7 @@ void loop() {
     --flood_val_print;
     if(flood_val_print < 0) {
       water_sensor_val = analogRead(WATER_SENSOR_AN_PIN);
-      flood_val_print  = 700000;
+      flood_val_print  = 250000;
       Serial.print(water_sensor_val);
       Serial.println( (ROOM_FLOODED) ? " flooded": " not flooded" );
      
@@ -652,6 +657,7 @@ void loop() {
       ROOM_FLOODED_TIME = millis();
       //digitalWrite(7, HIGH);
       Serial.println("Flood -> sendin sms");
+      digitalWrite(D1, HIGH);
       sendAlarmSMS(PHONE_NUMBER, DEFAULT_MESSAGE);
     } else {
       //
@@ -659,13 +665,11 @@ void loop() {
         Serial.print("Flood timeout : ");
         Serial.print(String(flood_time - ROOM_FLOODED_TIME));
         Serial.println(" / 120000");
-      }
-      if(flood_time - ROOM_FLOODED_TIME > 120000) {
 
-
-        
-        ROOM_FLOODED = false;
-        //digitalWrite(7, LOW);
+       if(flood_time - ROOM_FLOODED_TIME > 60000) { // 120000
+          ROOM_FLOODED = false;
+          digitalWrite(D1, LOW);
+        }
       }
       //
     }
