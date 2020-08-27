@@ -44,9 +44,6 @@ String remember_ssid = "";
 String remember_pwd = "";
 String remember_pwd2 = "";
 
-// Wifi Station
-//const char *g_WIFI_STATION_SSID     = "FunBox3-1482";
-//const char *g_WIFI_STATION_PASSWORD = "T-y9*yS528";
 
 //String IFTTT_URL = "http://sms.rolzwy7.usermd.net/sms-gate/send/517174906/zalane/";
 String IFTTT_FINGERPRINT = "40 cf ed 2a 97 a5 86 71 3c f7 10 d3 20 7a d5 d1 7f a8 c4 fd";
